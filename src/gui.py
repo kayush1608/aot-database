@@ -448,3 +448,311 @@ def search_query(connection):
     with col2:
         st.write("")
         st.caption("*Try: recover, reclaim, rescue, defend, etc.*")
+    
+    if st.button("Execute Query", type="primary"):
+        try:
+            st.info(f"**Query:** Find missions where the objective contains '{keyword}'")
+            results = get_recovery_missions(connection, keyword)
+            
+            st.divider()
+            st.subheader("Results")
+            
+            if results:
+                df = pd.DataFrame(results)
+                st.dataframe(df, width='stretch', hide_index=True)
+                st.success(f"Query returned {len(results)} row(s).")
+            else:
+                st.info("Query executed successfully but returned no results.")
+        except Exception as e:
+            st.error(f"Query execution failed: {e}")
+            st.write(traceback.format_exc())
+
+def add_soldier(connection):
+    """Render form for adding a new soldier."""
+    st.divider()
+    st.subheader("Add New Soldier")
+    
+    with st.form("add_soldier"):
+        col1, col2 = st.columns(2)
+        with col1:
+            soldier_id = st.text_input("Soldier ID*", placeholder="e.g., S001")
+            firstname = st.text_input("First Name*", placeholder="e.g., Eren")
+            lastname = st.text_input("Last Name", placeholder="e.g., Yeager")
+            dob = st.date_input("Date of Birth", min_value=datetime.date(1900, 1, 1), max_value=datetime.date.today().replace(year=datetime.date.today().year - 21))
+            regiment = st.selectbox("Regiment*", options=["Scout", "Garrison", "MP", "Researcher"])
+        with col2:
+            rank = st.selectbox("Rank*", options=["Cadet", "Soldier", "Squad_leader", "Commander", "Captain", "General"])
+            status = st.selectbox("Status*", options=["Active", "Deceased", "MIA"])
+            enlistment_date = st.date_input("Enlistment Date")
+            bloodline_name = st.text_input("Bloodline Name*", placeholder="e.g., Eldian(It will auto add Bloodline record if not exists)")
+            shifter = st.checkbox("Titan Shifter")
+        
+        submitted = st.form_submit_button("Add Soldier", type="primary")
+        
+        if submitted:
+            if not all([soldier_id, firstname, regiment, bloodline_name]):
+                st.error("Please fill all required fields marked with *")
+            else:
+                try:
+                    data = {
+                        'id': soldier_id,
+                        'firstname': firstname,
+                        'lastname': lastname if lastname else None,
+                        'dob': dob,
+                        'soldier_rank': rank,
+                        'regiment': regiment,
+                        'status': status,
+                        'enlistment_date': enlistment_date,
+                        'bloodline_name': bloodline_name,
+                        'shifter': shifter,
+                        'current_state': 'Soldier'
+                    }
+                    add_new_soldier(connection, data)
+                    st.success(f"Soldier {firstname} {lastname or ''} added successfully!")
+                except Exception as e:
+                    st.error(f"Failed to add soldier: {e}")
+                    st.write(traceback.format_exc())
+
+def rank(connection):
+    """Render form for updating soldier rank."""
+    st.divider()
+    st.subheader("Update Soldier Rank")
+    
+    try:
+        soldiers = fetch_all(connection, 'soldier')
+        if soldiers:
+            soldier_options = {f"{s['id']} - {s['firstname']} {s['lastname'] or ''}": s for s in soldiers}
+            
+            with st.form("update_rank_form"):
+                selected_soldier = st.selectbox("Select Soldier", options=list(soldier_options.keys()))
+                new_rank = st.selectbox("New Rank", options=["Cadet", "Soldier", "Squad_leader", "Commander", "Captain", "General"])
+                
+                submitted = st.form_submit_button("Update Rank", type="primary")
+                
+                if submitted:
+                    try:
+                        soldier = soldier_options[selected_soldier]
+                        update_soldier_rank(connection, soldier['id'], new_rank)
+                        st.success(f"Rank updated to {new_rank} for soldier {soldier['firstname']} {soldier['lastname'] or ''}")
+                    except Exception as e:
+                        st.error(f"Failed to update rank: {e}")
+                        st.write(traceback.format_exc())
+        else:
+            st.info("No soldiers found in the database.")
+    except Exception as e:
+        st.error(f"Failed to fetch soldiers: {e}")
+
+def delete_equipment(connection):
+    """Render form for deleting equipment."""
+    st.divider()
+    st.subheader("Delete Equipment Type")
+    st.caption("You may not be able to delete equipment types that were used by soldiers in missions. In such cases, consider making desired_quantity zero instead.")
+    
+    try:
+        equipment = fetch_all(connection, 'equipment')
+        if equipment:
+            equipment_options = {f"{e['model']} ({e['type']})": e for e in equipment}
+            
+            with st.form("delete_equipment"):
+                selected_equipment = st.selectbox("Select Equipment to Delete", options=list(equipment_options.keys()))
+                confirm = st.checkbox("I confirm I want to delete this equipment type")
+                
+                submitted = st.form_submit_button("Delete Equipment", type="primary")
+                
+                if submitted:
+                    if not confirm:
+                        st.error("Please confirm the deletion by checking the checkbox.")
+                    else:
+                        try:
+                            equipment_item = equipment_options[selected_equipment]
+                            delete_equipment_type(connection, equipment_item['model'])
+                            st.success(f"Equipment {equipment_item['model']} deleted successfully!")
+                        except Exception as e:
+                            st.error(f"Failed to delete equipment: {e}")
+                            st.write(traceback.format_exc())
+        else:
+            st.info("No equipment found in the database.")
+    except Exception as e:
+        st.error(f"Failed to fetch equipment: {e}")
+
+def reports(connection):
+    """Render the reports section."""
+    st.subheader("Analysis Reports")
+    
+    report_type = st.selectbox(
+        "Select Report Type",
+        options=[
+            "Threat Report",
+            "Commander Performance",
+            "Latest Mission Casualties"
+        ]
+    )
+    
+    if st.button("Generate Report", type="primary"):
+        try:
+            if report_type == "Threat Report":
+                threat(connection)
+            elif report_type == "Commander Performance":
+                performance(connection)
+            elif report_type == "Latest Mission Casualties":
+                casualties(connection)
+        except Exception as e:
+            st.error(f"Report generation failed: {e}")
+            st.write(traceback.format_exc())
+
+def threat(connection):
+    """Render the threat report."""
+    st.divider()
+    st.subheader("Threat Report")
+    st.caption("Total Titan sightings and soldier casualties for missions in each district")
+    
+    results = get_threat_report(connection)
+    if results:
+        df = pd.DataFrame(results)
+        st.dataframe(df, width='stretch', hide_index=True)
+        
+        st.divider()
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Total Districts", len(results))
+        with col2:
+            total_casualties = sum(row['Soldier_Casualties'] for row in results)
+            st.metric("Total Casualties", total_casualties)
+    else:
+        st.info("No threat data available.")
+
+def performance(connection):
+    """Render the commander performance report."""
+    st.divider()
+    st.subheader("Commander Performance Report")
+    st.caption("Missions led by commanders and associated casualties")
+    
+    results = get_commander_performance(connection)
+    if results:
+        df = pd.DataFrame(results)
+        st.dataframe(df, width='stretch', hide_index=True)
+        
+        st.divider()
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Commanders", len(results))
+        with col2:
+            total_missions = sum(row['Missions_Led'] for row in results)
+            st.metric("Total Missions Led", total_missions)
+        with col3:
+            total_casualties = sum(row['Total_Casualties'] for row in results)
+            st.metric("Total Casualties", total_casualties)
+    else:
+        st.info("No commander performance data available.")
+
+def casualties(connection):
+    """Render the latest mission casualties report."""
+    st.divider()
+    st.subheader("Latest Mission Casualties")
+    st.caption("Detailed analysis of soldiers who died in the most recent mission")
+    
+    results = get_latest_mission_casualties(connection)
+    if results:
+        df = pd.DataFrame(results)
+        st.dataframe(df, width='stretch', hide_index=True)
+        
+        st.divider()
+        if results:
+            mission_name = results[0]['Mission']
+            st.write(f"**Mission:** {mission_name}")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Casualties", len(results))
+            with col2:
+                avg_age = sum(row['Age_at_Death'] or 0 for row in results) / len(results) if results else 0
+                st.metric("Average Age", f"{avg_age:.1f} years")
+            with col3:
+                avg_service = sum(row['Years_of_Service'] or 0 for row in results) / len(results) if results else 0
+                st.metric("Avg Years of Service", f"{avg_service:.1f} years")
+            
+            st.divider()
+            st.write("**Casualties by Rank:**")
+            rank_counts = {}
+            for row in results:
+                rank = row['Rank']
+                rank_counts[rank] = rank_counts.get(rank, 0) + 1
+            rank_df = pd.DataFrame(list(rank_counts.items()), columns=['Rank', 'Count'])
+            st.dataframe(rank_df, width='stretch', hide_index=True)
+    else:
+        st.info("No casualty data available for recent missions.")
+
+def get_credentials():
+    use_default = st.checkbox("Use default credentials from environment", value=True)
+    if use_default:
+        st.info("Using credentials from environment variables (.env file)")
+    with st.form("credentials_form"):
+        if use_default:
+            host = None
+            port = None
+            user = None
+            password = None
+        else:
+            col1, col2 = st.columns(2)
+            with col1:
+                host = st.text_input("Host", value="localhost")
+                user = st.text_input("Username", value="")
+            with col2:
+                port = st.number_input("Port", value=3306, min_value=1, max_value=65535)
+                password = st.text_input("Password", type="password", value="")
+        submitted = st.form_submit_button("Connect", use_container_width=True)
+        if submitted:
+            st.session_state.db_credentials = {
+                'host': host,
+                'port': port,
+                'user': user,
+                'password': password
+            }
+            st.rerun()
+    return None
+
+def app():
+    """Main application entry point."""
+    st.title("Attack on Titan")
+    st.caption("Interface for querying and editing the database.")
+
+    connection=create(use_db=False)
+    sidebar()
+    if not connection:
+        st.error("Failed to connect to the database. Check your connection settings.")
+        countdown_placeholder = st.empty()
+        for i in range(5, 0, -1):
+            countdown_placeholder.info(f"Reloading connection form in {i}...")
+            time.sleep(1)
+        countdown_placeholder.empty()
+        
+        st.session_state.pop('db_credentials', None)
+        st.rerun()
+        return
+    connection.close()
+    connection=create(use_db=True)
+    if not connection:
+        st.error("Database not initialized. Please initialize the database from the sidebar.")
+        return
+
+    else:
+        try:
+            tables = get_tables(connection)
+        except Exception as e:
+            st.error(f"Error fetching tables: {e}")
+            return
+
+    st.sidebar.header("Actions")
+    action = st.sidebar.radio("Action", options=["Presets", "Reports", "View Records", "Run Query"], label_visibility="collapsed")
+
+    if 'selected_table' not in st.session_state:
+        st.session_state.selected_table = tables[0] if tables else None
+    
+    if action == "View Records":
+        view(connection, tables)
+    elif action == "Run Query":
+        run(connection)
+    elif action == "Presets":
+        modify(connection)
+    elif action == "Reports":
+        reports(connection)
