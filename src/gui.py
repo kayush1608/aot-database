@@ -198,3 +198,253 @@ def delete(connection, table):
         else:
             rows = fetch_all(connection, table)
             if not rows:
+                st.info("No records to delete in this table.")
+                if st.button("Back to View"):
+                    st.session_state.action_mode = "view"
+                    st.rerun()
+                return
+            
+            def row_label(r):
+                return " | ".join(str(r[k]) for k in pk_fields)
+            
+            pk_to_row = {row_label(r): r for r in rows}
+            delete_choice = st.selectbox("Select record to delete (by primary key)", options=list(pk_to_row.keys()))
+            selected_for_delete = pk_to_row[delete_choice]
+        
+        st.warning("Are you sure you want to delete this record?")
+        st.json(selected_for_delete)
+        
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            if st.button("Delete", type="primary"):
+                try:
+                    pk = {k: selected_for_delete[k] for k in pk_fields}
+                    delete_record(connection, table, pk)
+                    st.success("Record deleted successfully.")
+                    st.session_state.action_mode = "view"
+                    if 'selected_row' in st.session_state:
+                        del st.session_state.selected_row
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Delete failed: {e}")
+                    st.write(traceback.format_exc())
+        with col2:
+            if st.button("Cancel"):
+                st.session_state.action_mode = "view"
+                if 'selected_row' in st.session_state:
+                    del st.session_state.selected_row
+                st.rerun()
+
+def view_table(connection, table):
+    """Render the main table view with data and action buttons."""
+    st.divider()
+
+    col1, col2 = st.columns([2, 8])
+    with col1:
+        limit = st.number_input("Limit rows (0 = all)", min_value=0, value=100, key="limit_input")
+    
+    rows = fetch_all(connection, table, limit=None if limit == 0 else limit)
+    if rows:
+        columns = get_columns(connection, table)
+        pk_fields = get_primary_keys(columns)
+        
+        if pk_fields:
+            df = pd.DataFrame(rows)
+            
+            st.dataframe(
+                df,
+                width='stretch',
+                hide_index=True,
+                column_config={
+                    col: st.column_config.Column(
+                        width="medium"
+                    ) for col in df.columns
+                }
+            )
+            
+            st.divider()
+            st.write("**Actions:**")
+            
+            def row_label(r):
+                return " | ".join(str(r[k]) for k in pk_fields)
+            
+            pk_to_row = {row_label(r): r for r in rows}
+            
+            col1, col2, col3 = st.columns([3, 1, 1])
+            with col1:
+                selected_row_label = st.selectbox(
+                    "Select record (by primary key)",
+                    options=list(pk_to_row.keys()),
+                    key="action_row_select"
+                )
+            with col2:
+                if st.button("Edit", type="secondary", width='stretch'):
+                    st.session_state.selected_row = pk_to_row[selected_row_label]
+                    st.session_state.action_mode = "edit"
+                    st.rerun()
+            with col3:
+                if st.button("Delete", type="primary", width='stretch'):
+                    st.session_state.selected_row = pk_to_row[selected_row_label]
+                    st.session_state.action_mode = "delete"
+                    st.rerun()
+        else:
+            df = pd.DataFrame(rows)
+            st.dataframe(df, width='stretch')
+            st.info("This table has no primary key; edit/delete operations are not supported.")
+    else:
+        st.info("No records found in this table.")
+
+def run(connection):
+    """Render the custom SQL query section."""
+    st.subheader("Run SQL Query")
+    
+    custom_query = st.text_area(
+        "Enter your SQL query", 
+        height=200, 
+        placeholder="select * from table_name where condition"
+    )
+    
+    if st.button("Execute Query", type="primary", disabled=not custom_query.strip()):
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(custom_query)
+                results = cursor.fetchall()
+            
+            st.divider()
+            st.subheader("Results")
+            
+            if results:
+                df = pd.DataFrame(results)
+                st.dataframe(df, width='stretch')
+                st.success(f"Query returned {len(results)} row(s).")
+            else:
+                st.info("Query executed successfully but returned no results.")
+        except Exception as e:
+            st.error(f"Query execution failed: {e}")
+            st.write(traceback.format_exc())
+
+def modify(connection):
+    """Render the Presets section with preset queries."""
+    st.subheader("Preset Queries & Presets")
+    st.caption("Common queries and database modifications")
+    
+    operation = st.selectbox(
+        "Select Operation",
+        options=[
+            "3.1.1 Selection - Active Scout Regiment Soldiers",
+            "3.1.2 Projection - Success Mission Names & Objectives",
+            "3.1.3 Aggregate - Average Casualties per Mission",
+            "3.1.4 Search - Recovery-Related Missions",
+            "3.3.a - Add a new soldier to the army",
+            "3.3.b - Update the rank of a soldier",
+            "3.3.c - Delete an equipment type"
+        ]
+    )
+    
+    if "3.1.1" in operation:
+        selection_query(connection)
+    elif "3.1.2" in operation:
+        projection_query(connection)
+    elif "3.1.3" in operation:
+        aggregate_query(connection)
+    elif "3.1.4" in operation:
+        search_query(connection)
+    elif "3.3.a" in operation:
+        add_soldier(connection)
+    elif "3.3.b" in operation:
+        rank(connection)
+    elif "3.3.c" in operation:
+        delete_equipment(connection)
+
+def selection_query(connection):
+    """Render 3.1.1 selection query with dropdowns."""
+    st.divider()
+    st.subheader("3.1.1 Selection Query")
+    st.caption("Retrieve soldiers by regiment and status")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        regiment = st.selectbox("Regiment", options=["Scout", "Garrison", "MP", "Researcher"])
+    with col2:
+        status = st.selectbox("Status", options=["Active", "Deceased", "MIA"])
+    
+    if st.button("Execute Query", type="primary"):
+        try:
+            st.info(f"**Query:** Retrieve all soldier records where regiment is {regiment} and status is {status}")
+            results = get_active_scout_soldiers(connection, regiment, status)
+            
+            st.divider()
+            st.subheader("Results")
+            
+            if results:
+                df = pd.DataFrame(results)
+                st.dataframe(df, width='stretch', hide_index=True)
+                st.success(f"Query returned {len(results)} row(s).")
+            else:
+                st.info("Query executed successfully but returned no results.")
+        except Exception as e:
+            st.error(f"Query execution failed: {e}")
+            st.write(traceback.format_exc())
+
+def projection_query(connection):
+    """Render 3.1.2 projection query with dropdown."""
+    st.divider()
+    st.subheader("3.1.2 Projection Query")
+    st.caption("Display mission names and objectives by status")
+    
+    mission_status = st.selectbox("Mission Status", options=["Success", "Failure", "Active", "Planning", "Dropped"])
+    
+    if st.button("Execute Query", type="primary"):
+        try:
+            st.info(f"**Query:** Display the mission name and objective for all {mission_status} missions")
+            results = get_success_missions(connection, mission_status)
+            
+            st.divider()
+            st.subheader("Results")
+            
+            if results:
+                df = pd.DataFrame(results)
+                st.dataframe(df, width='stretch', hide_index=True)
+                st.success(f"Query returned {len(results)} row(s).")
+            else:
+                st.info("Query executed successfully but returned no results.")
+        except Exception as e:
+            st.error(f"Query execution failed: {e}")
+            st.write(traceback.format_exc())
+
+def aggregate_query(connection):
+    """Render 3.1.3 aggregate query."""
+    st.divider()
+    st.subheader("3.1.3 Aggregate Query")
+    st.caption("Calculate the average number of casualties per mission")
+    
+    if st.button("Execute Query", type="primary"):
+        try:
+            st.info("**Query:** Calculate the average number of casualties per mission")
+            results = get_average_casualties_per_mission(connection)
+            
+            st.divider()
+            st.subheader("Results")
+            
+            if results:
+                df = pd.DataFrame(results)
+                st.dataframe(df, width='stretch', hide_index=True)
+                st.success(f"Query returned {len(results)} row(s).")
+            else:
+                st.info("Query executed successfully but returned no results.")
+        except Exception as e:
+            st.error(f"Query execution failed: {e}")
+            st.write(traceback.format_exc())
+
+def search_query(connection):
+    """Render 3.1.4 search query with keyword input."""
+    st.divider()
+    st.subheader("3.1.4 Search Query")
+    st.caption("Find missions by keyword in objective")
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        keyword = st.text_input("Search Keyword", value="recover", placeholder="Enter keyword to search in mission objectives")
+    with col2:
+        st.write("")
+        st.caption("*Try: recover, reclaim, rescue, defend, etc.*")
